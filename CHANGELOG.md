@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.5-higharc.0]
+
+### Added
+
+- Opt-in `SlugAtlas` for sharing curve/band textures across vector-core text results.
+- Reference-counted GLSL texture ownership with stable glyph addresses through atlas growth.
+- Source integration tests and an ESM/CommonJS artifact test for shared glyph resources.
+
+### Fixed
+
+- GLSL color uniform now affects glyph color; blending matches premultiplied shader coverage.
+
+See [HIGHARC.md](HIGHARC.md) for the supported API and build workflow.
+
 ## [0.6.5] - 2026-07-03
 
 ### Changed

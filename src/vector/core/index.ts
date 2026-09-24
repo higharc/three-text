@@ -19,6 +19,7 @@ import type {
 import type { BoundingBox } from '../../utils/vectors';
 import type { QuadCurve, SlugShape, SlugGPUData } from '../slug/types';
 import { packSlugData } from '../slug/SlugPacker';
+import { SlugAtlas } from '../slug/SlugAtlas';
 import { cubicToQuadratics } from '../slug/curveUtils';
 import { TextRangeQuery } from '../../core/layout/TextRangeQuery';
 import type { HyphenationTrieNode } from '../../hyphenation';
@@ -32,6 +33,10 @@ export interface VectorTextResult {
   measureTextWidth(text: string, letterSpacing?: number): number;
   update(options: Partial<TextOptions>): Promise<VectorTextResult>;
   dispose(): void;
+}
+
+export interface VectorTextOptions {
+  atlas?: SlugAtlas;
 }
 
 interface OutlineContext {
@@ -106,7 +111,8 @@ function getOutlineForGlyph(ctx: OutlineContext, glyphId: number): GlyphOutline 
 function collectForSlug(
   ctx: OutlineContext,
   clustersByLine: GlyphCluster[][],
-  scale: number
+  scale: number,
+  atlas?: SlugAtlas
 ): { gpuData: SlugGPUData; glyphs: VectorGlyphInfo[]; planeBounds: BoundingBox } {
   const seen = new Set<number>();
   const outlinesByGlyph = new Map<number, GlyphOutline>();
@@ -203,12 +209,13 @@ function collectForSlug(
           },
         });
 
-        shapes.push({ curves, bounds, key: g.g });
+        const key = atlas ? JSON.stringify([ctx.cacheKeyPrefix, scale, g.g]) : g.g;
+        shapes.push({ curves, bounds, key });
       }
     }
   }
 
-  const gpuData = packSlugData(shapes);
+  const gpuData = atlas ? atlas.pack(shapes) : packSlugData(shapes);
   const planeBounds = computePlaneBounds(glyphInfos);
   return { gpuData, glyphs: glyphInfos, planeBounds };
 }
@@ -231,7 +238,8 @@ function computePlaneBounds(glyphInfos: VectorGlyphInfo[]): BoundingBox {
 function buildVectorResult(
   layoutHandle: TextLayoutHandle,
   ctx: OutlineContext,
-  options: TextOptions
+  options: TextOptions,
+  atlas?: SlugAtlas
 ): VectorTextResult {
   const scale = layoutHandle.layoutData.pixelsPerFontUnit;
 
@@ -259,17 +267,17 @@ function buildVectorResult(
       );
       layoutHandle = newLayout;
       options = mergedOptions;
-      return buildVectorResult(layoutHandle, newCtx, options);
+      return buildVectorResult(layoutHandle, newCtx, options, atlas);
     }
 
     const newLayout = await layoutHandle.update(mergedOptions);
     layoutHandle = newLayout;
     options = mergedOptions;
-    return buildVectorResult(layoutHandle, ctx, options);
+    return buildVectorResult(layoutHandle, ctx, options, atlas);
   };
 
   const { gpuData, glyphs, planeBounds } =
-    collectForSlug(ctx, layoutHandle.clustersByLine, scale);
+    collectForSlug(ctx, layoutHandle.clustersByLine, scale, atlas);
 
   return {
     gpuData,
@@ -300,14 +308,19 @@ export class Text {
   static setMaxFontCacheMemoryMB = TextCore.setMaxFontCacheMemoryMB;
   static enableWoff2 = TextCore.enableWoff2;
 
-  static async create(options: TextOptions): Promise<VectorTextResult> {
+  static async create(options: TextOptions, vectorOptions: VectorTextOptions = {}): Promise<VectorTextResult> {
     const layoutHandle = await TextCore.create(options);
     const ctx = createOutlineContext(
       layoutHandle.loadedFont,
       layoutHandle.fontId,
       globalOutlineCache
     );
-    return buildVectorResult(layoutHandle, ctx, options);
+    try {
+      return buildVectorResult(layoutHandle, ctx, options, vectorOptions.atlas);
+    } catch (error) {
+      layoutHandle.dispose();
+      throw error;
+    }
   }
 }
 
@@ -319,3 +332,5 @@ export type {
 };
 export type { HyphenationTrieNode };
 export type { SlugGPUData } from '../slug/types';
+export { SlugAtlas } from '../slug/SlugAtlas';
+export type { SlugAtlasOptions } from '../slug/SlugAtlas';

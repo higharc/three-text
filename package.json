@@ -1,6 +1,6 @@
 {
   "name": "three-text",
-  "version": "0.6.5",
+  "version": "0.6.5-higharc.0",
   "description": "3D font rendering and text layout engine for the web",
   "main": "dist/three/index.cjs",
   "module": "dist/three/index.js",
@@ -102,6 +102,7 @@
   "files": [
     "dist",
     "README.md",
+    "HIGHARC.md",
     "LICENSE",
     "LICENSE_THIRD_PARTY"
   ],
@@ -116,6 +117,8 @@
     "prepublishOnly": "npm run clean && npm run test:build && npm run build",
     "test": "vitest run",
     "test:build": "node scripts/verifyBuild.mjs",
+    "test:artifact": "node scripts/verifySharedAtlas.mjs",
+    "test:browser": "node scripts/verifySharedAtlasBrowser.mjs",
     "benchmark": "THREE_TEXT_LOG=true vitest run test/pipelinePerf.test.ts",
     "format": "prettier --write \"**/*.{js,ts,json,md}\"",
     "format:check": "prettier --check \"**/*.{js,ts,json,md}\""
@@ -133,10 +136,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/countertype/three-text.git"
+    "url": "git+https://github.com/higharc/three-text.git"
   },
   "bugs": {
-    "url": "https://github.com/countertype/three-text/issues"
+    "url": "https://github.com/higharc/three-text/issues"
   },
   "homepage": "https://countertype.com/tools/three-text/demo",
   "peerDependencies": {
@@ -174,6 +177,7 @@
     "brotli-lib": "^0.0.3",
     "http-server": "^14.1.1",
     "jsdom": "^26.1.0",
+    "playwright": "1.58.2",
     "prettier": "^3.6.2",
     "rimraf": "^4.1.2",
     "rollup": "^3.18.0",

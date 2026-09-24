@@ -31,6 +31,14 @@ export interface SlugGPUData {
   vertices: Float32Array;
   indices: Uint16Array;
   shapeCount: number;
+  sharedTextures?: SlugSharedTextures;
+}
+
+/** Mutable texture descriptors shared by atlas results; addresses stay stable as version grows. */
+export interface SlugSharedTextures {
+  curveTexture: SlugPackedTexture & { data: Float32Array };
+  bandTexture: SlugPackedTexture & { data: Uint32Array };
+  version: number;
 }
 
 export interface SlugPackOptions {

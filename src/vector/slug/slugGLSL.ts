@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import type { SlugGPUData } from './types';
 import { unpackSlugVertices } from './unpackVertices';
 import { fragmentShaderGLSL300 } from './shaderStrings';
+import { acquireSlugGLSLTextures } from './slugGLSLTextures';
 
 // Three.js GLSL3 mode prepends #version 300 es, so strip it from the raw shader
 const fragShader = fragmentShaderGLSL300.replace(/^#version\s+300\s+es\s*\n/, '');
@@ -52,6 +53,7 @@ in float glyphIndex;
 uniform mat4 modelViewMatrix;
 uniform mat4 projectionMatrix;
 uniform float time;
+uniform vec4 u_color;
 ${decl}
 
 out vec2 v_texcoord;
@@ -63,7 +65,7 @@ void main() {
     v_texcoord = slugTexcoord;
     v_banding = slugBanding;
     v_glyph = ivec4(slugGlyph);
-    v_color = slugColor;
+    v_color = slugColor * u_color;
 
     ${body}
 
@@ -88,38 +90,15 @@ export function createSlugGLSLMesh(
   geo.setAttribute('glyphIndex', new THREE.Float32BufferAttribute(attrs.glyphIndices, 1));
   geo.setIndex(new THREE.BufferAttribute(gpuData.indices, 1));
 
-  const curveTex = new THREE.DataTexture(
-    gpuData.curveTexture.data,
-    gpuData.curveTexture.width,
-    gpuData.curveTexture.height,
-    THREE.RGBAFormat,
-    THREE.FloatType
-  );
-  curveTex.minFilter = THREE.NearestFilter;
-  curveTex.magFilter = THREE.NearestFilter;
-  curveTex.generateMipmaps = false;
-  curveTex.needsUpdate = true;
-
-  // RGBA32UI (unlike TSL, GLSL supports integer textures natively)
-  const bandTex = new THREE.DataTexture(
-    gpuData.bandTexture.data,
-    gpuData.bandTexture.width,
-    gpuData.bandTexture.height
-  );
-  bandTex.format = THREE.RGBAIntegerFormat;
-  bandTex.type = THREE.UnsignedIntType;
-  bandTex.internalFormat = 'RGBA32UI';
-  bandTex.minFilter = THREE.NearestFilter;
-  bandTex.magFilter = THREE.NearestFilter;
-  bandTex.generateMipmaps = false;
-  bandTex.needsUpdate = true;
+  const textures = acquireSlugGLSLTextures(gpuData);
+  const pair = textures.sync();
 
   const col = options?.color ?? { r: 1, g: 1, b: 1 };
   const colorUniform = new THREE.Vector4(col.r, col.g, col.b, 1.0);
 
   const uniforms: Record<string, THREE.IUniform> = {
-    curveTexture: { value: curveTex },
-    bandTexture: { value: bandTex },
+    curveTexture: { value: pair.curve },
+    bandTexture: { value: pair.band },
     time: { value: 0 },
     u_color: { value: colorUniform },
     ...options?.uniforms,
@@ -135,11 +114,18 @@ export function createSlugGLSLMesh(
     vertexShader: buildVertexShader(options),
     fragmentShader: frag,
     transparent: true,
+    premultipliedAlpha: true,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
 
   const mesh = new THREE.Mesh(geo, material);
+  mesh.onBeforeRender = () => {
+    const pair = textures.sync();
+    uniforms.curveTexture.value = pair.curve;
+    uniforms.bandTexture.value = pair.band;
+  };
+  let disposed = false;
 
   return {
     mesh,
@@ -151,10 +137,11 @@ export function createSlugGLSLMesh(
       colorUniform.set(r, g, b, 1.0);
     },
     dispose() {
+      if (disposed) return;
+      disposed = true;
       geo.dispose();
       material.dispose();
-      curveTex.dispose();
-      bandTex.dispose();
+      textures.release();
     }
   };
 }

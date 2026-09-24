@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <title>Shared Slug atlas artifact proof</title>
+  <link rel="icon" href="data:," />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/three/build/three.module.js",
+        "three/": "/three/",
+        "three-text/vector/core": "/package/dist/vector/core/index.js",
+        "three-text/vector": "/package/dist/vector/index.js"
+      }
+    }
+  </script>
+  <body style="margin: 0; background: white">
+    <p id="status">Running shared atlas checks…</p>
+    <script type="module" src="./shared-atlas.js"></script>
+  </body>
+</html>
