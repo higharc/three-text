@@ -15,6 +15,10 @@
 - Reference-counted GLSL texture ownership with stable glyph addresses through atlas growth.
 - Source integration tests and an ESM/CommonJS artifact test for shared glyph resources.
 
+### Changed
+
+- Incrementally pack new atlas glyphs without revisiting existing contours and bands.
+
 ### Fixed
 
 - GLSL color uniform now affects glyph color; blending matches premultiplied shader coverage.

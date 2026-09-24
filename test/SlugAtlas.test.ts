@@ -50,6 +50,24 @@ describe('shared Slug atlas', () => {
     expect(atlas.pack([triangle('a')]).vertices).toEqual(vertices);
   });
 
+  it('incrementally packs the same texels and glyph addresses as a full pack across texture rows', () => {
+    const atlas = new SlugAtlas();
+    const shapes: SlugShape[] = [];
+    for (let index = 0; index < 700; index++) {
+      const shape = triangle(`glyph-${index}`, index);
+      shapes.push(shape);
+      const result = atlas.pack([shape]);
+      if (index === 0 || index === 100 || index === 699) {
+        const all = packSlugData(shapes);
+        expect(result.curveTexture.data).toEqual(all.curveTexture.data);
+        expect(result.bandTexture.data).toEqual(all.bandTexture.data);
+        expect(result.vertices).toEqual(all.vertices.subarray(index * 80, (index + 1) * 80));
+      }
+    }
+    expect(atlas.getStats().glyphCount).toBe(700);
+    expect(atlas.getStats().textureBytes).toBeGreaterThan(131072);
+  });
+
   it('fails atomically when a glyph or byte budget is exhausted', () => {
     for (const atlas of [
       new SlugAtlas({ maxGlyphs: 1 }),

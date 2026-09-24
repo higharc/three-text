@@ -39,9 +39,9 @@ than fetched separately for each label.
 ## Ownership and limits
 
 - The atlas is append-only. Existing geometry keeps valid curve/band addresses
-  when new glyphs arrive. CPU packing is repeated over the accumulated unique
-  glyphs on a cache miss; hits only assemble label quads. Bulk atlas growth is a
-  possible further optimization.
+  when new glyphs arrive. Only new glyphs are curve/band packed on a cache miss;
+  existing texture rows are copied when the arrays grow. Hits only assemble label
+  quads. Chunked GPU texture updates are a possible further optimization.
 - GPU texture pairs are shared by mesh adapters and reference-counted. Updates
   are coalesced until a mesh is created or rendered. Each mesh refreshes its
   texture uniforms in `onBeforeRender`; preserve that callback when extending it.
