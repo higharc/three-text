@@ -6,6 +6,13 @@
 
 import type { SlugShape, SlugGPUData, SlugPackOptions } from './types';
 
+export interface SlugPackingState {
+  curveTexture: SlugGPUData['curveTexture'];
+  bandTexture: SlugGPUData['bandTexture'];
+  curveTexelCount: number;
+  bandTexelCount: number;
+}
+
 const TEX_WIDTH = 4096;
 const LOG_TEX_WIDTH = 12;
 
@@ -23,11 +30,16 @@ function uintAsFloat(u: number): number {
 }
 
 interface CurveEntry {
-  p1x: number; p1y: number;
-  p2x: number; p2y: number;
-  p3x: number; p3y: number;
-  minX: number; minY: number;
-  maxX: number; maxY: number;
+  p1x: number;
+  p1y: number;
+  p2x: number;
+  p2y: number;
+  p3x: number;
+  p3y: number;
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
   curveTexX: number;
   curveTexY: number;
 }
@@ -36,10 +48,11 @@ interface CurveEntry {
 // Each shape is a closed region defined by quadratic Bezier curves
 export function packSlugData(
   shapes: SlugShape[],
-  options?: SlugPackOptions
-): SlugGPUData {
+  options?: SlugPackOptions & { previous?: SlugPackingState }
+): SlugGPUData & { packingState: SlugPackingState } {
   const bandCount = options?.bandCount ?? 16;
   const evenOdd = options?.evenOdd ?? false;
+  const previous = options?.previous;
 
   // Curve and band texels are stored once per unique key (first occurrence
   // wins) and instances share the texture location
@@ -61,16 +74,18 @@ export function packSlugData(
   }
 
   const allCurves: CurveEntry[][] = [];
-  let curveTexelCount = 0;
+  let curveTexelCount = previous?.curveTexelCount ?? 0;
   let totalCurves = 0;
   for (const shape of packedShapes) {
     totalCurves += shape.curves.length;
   }
-  const curveTexHeight = Math.ceil((totalCurves * 2) / TEX_WIDTH) + 1;
+  const curveTexHeight =
+    Math.ceil((curveTexelCount + totalCurves * 2) / TEX_WIDTH) + 1;
   const curveData = new Float32Array(TEX_WIDTH * curveTexHeight * 4);
+  if (previous) curveData.set(previous.curveTexture.data);
 
-  let curveX = 0;
-  let curveY = 0;
+  let curveX = curveTexelCount & (TEX_WIDTH - 1);
+  let curveY = curveTexelCount >> LOG_TEX_WIDTH;
 
   for (const shape of packedShapes) {
     const entries: CurveEntry[] = [];
@@ -83,9 +98,12 @@ export function packSlugData(
 
       // Glyph-local space (relative to bounds min) keeps renderCoord
       // subtraction near zero, preserving float32 precision in the solver
-      const lp1x = curve.p1[0] - ox, lp1y = curve.p1[1] - oy;
-      const lp2x = curve.p2[0] - ox, lp2y = curve.p2[1] - oy;
-      const lp3x = curve.p3[0] - ox, lp3y = curve.p3[1] - oy;
+      const lp1x = curve.p1[0] - ox,
+        lp1y = curve.p1[1] - oy;
+      const lp2x = curve.p2[0] - ox,
+        lp2y = curve.p2[1] - oy;
+      const lp3x = curve.p3[0] - ox,
+        lp3y = curve.p3[1] - oy;
 
       const base = (curveY * TEX_WIDTH + curveX) * 4;
       curveData[base + 0] = lp1x;
@@ -103,10 +121,16 @@ export function packSlugData(
       const maxY = Math.max(lp1y, lp2y, lp3y);
 
       entries.push({
-        p1x: lp1x, p1y: lp1y,
-        p2x: lp2x, p2y: lp2y,
-        p3x: lp3x, p3y: lp3y,
-        minX, minY, maxX, maxY,
+        p1x: lp1x,
+        p1y: lp1y,
+        p2x: lp2x,
+        p2y: lp2y,
+        p3x: lp3x,
+        p3y: lp3y,
+        minX,
+        minY,
+        maxX,
+        maxY,
         curveTexX: curveX,
         curveTexY: curveY
       });
@@ -142,8 +166,12 @@ export function packSlugData(
     const curves = allCurves[si];
     if (curves.length === 0) {
       shapeBandData.push({
-        hLists: [], vLists: [], hOffsets: [], vOffsets: [],
-        bandMaxX: 0, bandMaxY: 0
+        hLists: [],
+        vLists: [],
+        hOffsets: [],
+        vOffsets: [],
+        bandMaxX: 0,
+        bandMaxY: 0
       });
       continue;
     }
@@ -203,8 +231,8 @@ export function packSlugData(
 
   // Placement pass: compute glyph locations and per-band list offsets,
   // yielding the exact band texture height before allocating it
-  let bandX = 0;
-  let bandY = 0;
+  let bandX = (previous?.bandTexelCount ?? 0) & texWidthMask;
+  let bandY = (previous?.bandTexelCount ?? 0) >> LOG_TEX_WIDTH;
   const glyphLocs: { x: number; y: number }[] = [];
 
   for (let si = 0; si < packedShapes.length; si++) {
@@ -233,7 +261,7 @@ export function packSlugData(
       if (listLen === 0) return;
       const startX = (glyphLocX + listStartOffset) & texWidthMask;
       if (startX + listLen > TEX_WIDTH) {
-        listStartOffset += (TEX_WIDTH - startX);
+        listStartOffset += TEX_WIDTH - startX;
       }
     };
 
@@ -257,6 +285,7 @@ export function packSlugData(
 
   const actualBandTexHeight = bandY + 1;
   const bandData = new Uint32Array(TEX_WIDTH * actualBandTexHeight * 4);
+  if (previous) bandData.set(previous.bandTexture.data);
 
   for (let si = 0; si < packedShapes.length; si++) {
     const sd = shapeBandData[si];
@@ -309,14 +338,16 @@ export function packSlugData(
 
   const FLOATS_PER_VERTEX = 20; // 5 attribs * 4 components
   const VERTS_PER_SHAPE = 4;
-  const vertices = new Float32Array(shapes.length * VERTS_PER_SHAPE * FLOATS_PER_VERTEX);
+  const vertices = new Float32Array(
+    shapes.length * VERTS_PER_SHAPE * FLOATS_PER_VERTEX
+  );
   const indices = new Uint16Array(shapes.length * 6);
 
   const cornerNormals: [number, number][] = [
     [-1, -1],
-    [ 1, -1],
-    [ 1,  1],
-    [-1,  1],
+    [1, -1],
+    [1, 1],
+    [-1, 1]
   ];
 
   for (let si = 0; si < shapes.length; si++) {
@@ -331,19 +362,19 @@ export function packSlugData(
       [bMinX, bMinY],
       [bMaxX, bMinY],
       [bMaxX, bMaxY],
-      [bMinX, bMaxY],
+      [bMinX, bMaxY]
     ];
 
     const emCorners: [number, number][] = [
       [0, 0],
       [w, 0],
       [w, h],
-      [0, h],
+      [0, h]
     ];
 
-    const texZ = uintAsFloat((glyph.x & 0xFFFF) | ((glyph.y & 0xFFFF) << 16));
+    const texZ = uintAsFloat((glyph.x & 0xffff) | ((glyph.y & 0xffff) << 16));
 
-    let texWBits = (sd.bandMaxX & 0xFF) | ((sd.bandMaxY & 0xFF) << 16);
+    let texWBits = (sd.bandMaxX & 0xff) | ((sd.bandMaxY & 0xff) << 16);
     if (evenOdd) texWBits |= 0x10000000; // E flag at bit 28
     const texW = uintAsFloat(texWBits);
 
@@ -394,21 +425,28 @@ export function packSlugData(
     indices[iBase + 5] = vBase + 3;
   }
 
+  const curveTexture = {
+    // subarray: consumers upload or copy; no need to duplicate the buffer
+    data: curveData.subarray(0, TEX_WIDTH * actualCurveTexHeight * 4),
+    width: TEX_WIDTH,
+    height: actualCurveTexHeight
+  };
+  const bandTexture = {
+    data: bandData, // allocated at exact size by the placement pass
+    width: TEX_WIDTH,
+    height: actualBandTexHeight
+  };
   return {
-    curveTexture: {
-      // subarray: consumers upload or copy; no need to duplicate the buffer
-      data: curveData.subarray(0, TEX_WIDTH * actualCurveTexHeight * 4),
-      width: TEX_WIDTH,
-      height: actualCurveTexHeight
-    },
-    bandTexture: {
-      data: bandData, // allocated at exact size by the placement pass
-      width: TEX_WIDTH,
-      height: actualBandTexHeight
-    },
+    curveTexture,
+    bandTexture,
     vertices,
     indices,
-    shapeCount: shapes.length
+    shapeCount: shapes.length,
+    packingState: {
+      curveTexture,
+      bandTexture,
+      curveTexelCount,
+      bandTexelCount: bandY * TEX_WIDTH + bandX
+    }
   };
 }
-

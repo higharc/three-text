@@ -10,7 +10,8 @@ export interface SlugAtlasOptions {
 export class SlugAtlas {
   private readonly shapes: SlugShape[] = [];
   private readonly indicesByKey = new Map<string | number, number>();
-  private packed: SlugGPUData = packSlugData([]);
+  private packed = packSlugData([]);
+  private readonly verticesByKey = new Map<string | number, Float32Array>();
   private readonly maxGlyphs: number;
   private readonly maxTextureBytes: number;
   readonly textures: SlugSharedTextures = {
@@ -69,8 +70,9 @@ export class SlugAtlas {
       );
     }
     if (additions.size > 0) {
-      const nextShapes = [...this.shapes, ...additions.values()];
-      const next = packSlugData(nextShapes);
+      const next = packSlugData([...additions.values()], {
+        previous: this.packed.packingState
+      });
       if (
         next.curveTexture.data.byteLength + next.bandTexture.data.byteLength >
         this.maxTextureBytes
@@ -81,9 +83,14 @@ export class SlugAtlas {
       }
       // Appending preserves both curve and band addresses. Never evict or reorder
       // entries: existing meshes hold those addresses in their vertex attributes.
+      let addedIndex = 0;
       for (const [key, shape] of additions) {
         this.indicesByKey.set(key, this.shapes.length);
         this.shapes.push(shape);
+        this.verticesByKey.set(
+          key,
+          next.vertices.slice(addedIndex * 80, ++addedIndex * 80)
+        );
       }
       this.packed = next;
       Object.assign(this.textures.curveTexture, next.curveTexture);
@@ -95,14 +102,13 @@ export class SlugAtlas {
     const indices = new Uint16Array(shapes.length * 6);
     for (let index = 0; index < shapes.length; index++) {
       const shape = shapes[index];
-      const packedIndex = this.indicesByKey.get(shape.key as string | number);
-      if (packedIndex === undefined) {
+      const glyphVertices = this.verticesByKey.get(
+        shape.key as string | number
+      );
+      if (glyphVertices === undefined) {
         throw new Error('Missing shared Slug glyph');
       }
-      vertices.set(
-        this.packed.vertices.subarray(packedIndex * 80, (packedIndex + 1) * 80),
-        index * 80
-      );
+      vertices.set(glyphVertices, index * 80);
       const [minX, minY, maxX, maxY] = shape.bounds;
       for (let corner = 0; corner < 4; corner++) {
         const offset = index * 80 + corner * 20;
