@@ -14,6 +14,8 @@ flat in ivec4 v_glyph;
 
 uniform sampler2D curveTexture;     // RGBA32F control points
 uniform highp usampler2D bandTexture; // RGBA32UI band data
+uniform float u_outlineRadius;
+uniform vec3 u_outlineColor;
 
 layout(location = 0) out vec4 outColor;
 

@@ -13,10 +13,19 @@ import { fragmentShaderGLSL300 } from './shaderStrings';
 import { acquireSlugGLSLTextures } from './slugGLSLTextures';
 
 // Three.js GLSL3 mode prepends #version 300 es, so strip it from the raw shader
-const fragShader = fragmentShaderGLSL300.replace(/^#version\s+300\s+es\s*\n/, '');
+const fragShader = fragmentShaderGLSL300.replace(
+  /^#version\s+300\s+es\s*\n/,
+  ''
+);
 
 export interface SlugGLSLMeshOptions {
   color?: { r: number; g: number; b: number };
+  /** Outline diameter in the same coordinates as the text size. */
+  outlineWidth?: number;
+  outlineColor?: { r: number; g: number; b: number };
+  /** Additional GLSL 300 ES declarations and main-body code for application materials. */
+  fragmentDeclarations?: string;
+  fragmentBody?: string;
   // GLSL preamble injected before main(): uniforms, helpers, etc
   animationDeclarations?: string;
   // GLSL body injected inside main(), must write `outPos` (vec3)
@@ -78,22 +87,60 @@ export function createSlugGLSLMesh(
   gpuData: SlugGPUData,
   options?: SlugGLSLMeshOptions
 ): SlugGLSLMesh {
+  const outlineWidth = options?.outlineWidth ?? 0;
+  if (!Number.isFinite(outlineWidth) || outlineWidth < 0) {
+    throw new RangeError('Slug outlineWidth must be finite and nonnegative');
+  }
   const attrs = unpackSlugVertices(gpuData);
+  if (outlineWidth > 0) {
+    const radius = outlineWidth / 2;
+    for (let index = 0; index < attrs.positions.length / 3; index++) {
+      const corner = index % 4;
+      const x = corner === 0 || corner === 3 ? -radius : radius;
+      const y = corner < 2 ? -radius : radius;
+      attrs.positions[index * 3] += x;
+      attrs.positions[index * 3 + 1] += y;
+      attrs.texcoords[index * 2] += x;
+      attrs.texcoords[index * 2 + 1] += y;
+    }
+  }
 
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(attrs.positions, 3));
-  geo.setAttribute('slugTexcoord', new THREE.Float32BufferAttribute(attrs.texcoords, 2));
-  geo.setAttribute('slugBanding', new THREE.Float32BufferAttribute(attrs.bandings, 4));
-  geo.setAttribute('slugGlyph', new THREE.Float32BufferAttribute(attrs.glyphData, 4));
-  geo.setAttribute('slugColor', new THREE.Float32BufferAttribute(attrs.colors, 4));
-  geo.setAttribute('glyphCenter', new THREE.Float32BufferAttribute(attrs.glyphCenters, 3));
-  geo.setAttribute('glyphIndex', new THREE.Float32BufferAttribute(attrs.glyphIndices, 1));
+  geo.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(attrs.positions, 3)
+  );
+  geo.setAttribute(
+    'slugTexcoord',
+    new THREE.Float32BufferAttribute(attrs.texcoords, 2)
+  );
+  geo.setAttribute(
+    'slugBanding',
+    new THREE.Float32BufferAttribute(attrs.bandings, 4)
+  );
+  geo.setAttribute(
+    'slugGlyph',
+    new THREE.Float32BufferAttribute(attrs.glyphData, 4)
+  );
+  geo.setAttribute(
+    'slugColor',
+    new THREE.Float32BufferAttribute(attrs.colors, 4)
+  );
+  geo.setAttribute(
+    'glyphCenter',
+    new THREE.Float32BufferAttribute(attrs.glyphCenters, 3)
+  );
+  geo.setAttribute(
+    'glyphIndex',
+    new THREE.Float32BufferAttribute(attrs.glyphIndices, 1)
+  );
   geo.setIndex(new THREE.BufferAttribute(gpuData.indices, 1));
 
   const textures = acquireSlugGLSLTextures(gpuData);
   const pair = textures.sync();
 
   const col = options?.color ?? { r: 1, g: 1, b: 1 };
+  const outlineColor = options?.outlineColor ?? col;
   const colorUniform = new THREE.Vector4(col.r, col.g, col.b, 1.0);
 
   const uniforms: Record<string, THREE.IUniform> = {
@@ -101,12 +148,40 @@ export function createSlugGLSLMesh(
     bandTexture: { value: pair.band },
     time: { value: 0 },
     u_color: { value: colorUniform },
-    ...options?.uniforms,
+    u_outlineRadius: { value: outlineWidth / 2 },
+    u_outlineColor: {
+      value: new THREE.Color().setRGB(
+        outlineColor.r,
+        outlineColor.g,
+        outlineColor.b
+      )
+    },
+    ...options?.uniforms
   };
 
-  const frag = options?.adaptiveSupersampling
-    ? '#define SLUG_ADAPTIVE_SUPERSAMPLE\n' + fragShader
-    : fragShader;
+  const frag = `${options?.adaptiveSupersampling ? '#define SLUG_ADAPTIVE_SUPERSAMPLE\n' : ''}
+${fragShader
+  .replace(
+    'void main() {',
+    `${options?.fragmentDeclarations ?? ''}\nvoid main() {`
+  )
+  .replace(
+    '    outColor = v_color * coverage;',
+    `    vec4 fillColor = v_color * coverage;
+    outColor = fillColor;
+    if (u_outlineRadius > 0.0) {
+        float outer = coverage;
+        // Supersample the offset fill at the stroke boundary. This avoids
+        // tessellated stroke geometry and expands the quad to cover exterior ink.
+        for (int sampleIndex = 0; sampleIndex < 8; sampleIndex++) {
+            float angle = float(sampleIndex) * 0.7853981633974483;
+            outer = max(outer, SlugRender(v_texcoord + u_outlineRadius * vec2(cos(angle), sin(angle)), v_banding, v_glyph));
+        }
+        outColor = vec4(u_outlineColor.rgb * (outer - coverage), outer - coverage) + fillColor;
+    }
+    if (outColor.a <= 0.0) discard;
+    ${options?.fragmentBody ?? ''}`
+  )}`;
 
   const material = new THREE.RawShaderMaterial({
     glslVersion: THREE.GLSL3,
@@ -116,7 +191,7 @@ export function createSlugGLSLMesh(
     transparent: true,
     premultipliedAlpha: true,
     depthWrite: false,
-    side: THREE.DoubleSide,
+    side: THREE.DoubleSide
   });
 
   const mesh = new THREE.Mesh(geo, material);

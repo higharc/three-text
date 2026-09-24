@@ -9,7 +9,8 @@ const { values } = parseArgs({
   options: {
     package: { type: 'string', default: '.' },
     three: { type: 'string', default: 'node_modules/three' },
-    font: { type: 'string', multiple: true }
+    font: { type: 'string', multiple: true },
+    profile: { type: 'boolean', default: false }
   }
 });
 const fonts = values.font ?? [
@@ -87,7 +88,7 @@ try {
     if (message.type() === 'error') errors.push(message.text());
   });
   await page.goto(
-    `http://127.0.0.1:${server.address().port}/test/shared-atlas.html`
+    `http://127.0.0.1:${server.address().port}/test/${values.profile ? 'profile.html' : 'shared-atlas.html'}`
   );
   await page.waitForFunction(() => window.atlasProof || window.atlasError, {
     timeout: 120000
@@ -96,10 +97,12 @@ try {
     result: window.atlasProof,
     error: window.atlasError
   }));
-  assert.equal(result.error, undefined);
   assert.deepEqual(errors, []);
+  assert.equal(result.error, undefined);
   await mkdir('test-artifacts', { recursive: true });
-  await page.screenshot({ path: 'test-artifacts/shared-slug.png' });
+  if (!values.profile) {
+    await page.screenshot({ path: 'test-artifacts/shared-slug.png' });
+  }
   console.log(JSON.stringify(result.result, null, 2));
 } finally {
   await browser?.close();

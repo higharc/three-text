@@ -127,4 +127,37 @@ describe('shared Slug atlas', () => {
     a.dispose();
     b.dispose();
   });
+
+  it('expands outlined quads without changing atlas coordinates or allocating stroke geometry', () => {
+    const data = new SlugAtlas().pack([triangle('a')]);
+    const plain = createSlugGLSLMesh(data);
+    const stroke = createSlugGLSLMesh(data, {
+      outlineWidth: 0.2,
+      outlineColor: { r: 1, g: 0, b: 0 },
+      fragmentDeclarations: 'uniform float custom;',
+      fragmentBody: 'outColor.rgb *= custom;',
+      uniforms: { custom: { value: 0.5 } }
+    });
+    expect(stroke.mesh.geometry.getAttribute('position').count).toBe(
+      plain.mesh.geometry.getAttribute('position').count
+    );
+    expect(stroke.mesh.geometry.boundingBox).toBeNull();
+    expect(stroke.mesh.geometry.getAttribute('position').getX(0)).toBeCloseTo(
+      -0.1
+    );
+    expect(
+      stroke.mesh.geometry.getAttribute('slugTexcoord').getX(0)
+    ).toBeCloseTo(-0.1);
+    expect(stroke.uniforms.u_outlineRadius.value).toBeCloseTo(0.1);
+    expect(stroke.uniforms.custom.value).toBe(0.5);
+    const material = stroke.mesh.material as import('three').RawShaderMaterial;
+    expect(material.fragmentShader).toContain('uniform float custom;');
+    expect(material.fragmentShader).toContain('outColor.rgb *= custom;');
+    expect(material.fragmentShader).toContain('outer - coverage');
+    plain.dispose();
+    stroke.dispose();
+    expect(() => createSlugGLSLMesh(data, { outlineWidth: -1 })).toThrow(
+      RangeError
+    );
+  });
 });

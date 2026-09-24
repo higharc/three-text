@@ -55,7 +55,16 @@ than fetched separately for each label.
   the sheet; their CPU data is garbage-collected. Disposing all adapters frees
   GPU resources even if the CPU atlas is retained for reuse.
 - Sharing reduces storage and uploads, not draw calls or per-pixel curve work.
-  Outlines and Higharc selection/isolation integration remain separate work.
+  Outlines use eight offset evaluations of the Slug coverage shader, with
+  expanded glyph quads. `outlineWidth` is a diameter in text-space coordinates;
+  `outlineColor` and optional `fragmentDeclarations`/`fragmentBody` let an
+  application style the fill independently. Do not enable outlines for dense
+  sheets before measuring GPU time on the target hardware.
+- The GLSL application hook runs after premultiplied fill/stroke coverage is
+  computed. It can access `fillColor` and `outColor`; sampler uniforms can be
+  passed through `uniforms`. Avoid writing RGB outside the covered glyph since
+  transparent pixels are discarded before the hook. Higharc's adapter is in
+  `product/packages/gfx/threeTextVectorMaterial.ts`.
 
 ## Build and test
 
@@ -69,6 +78,7 @@ npm run test:build
 npm run test:artifact
 npx playwright install chromium
 npm run test:browser
+npm run profile:gpu -- --font ../product/apps/web/public/static/fonts/Arial/ARIALN.TTF
 npm pack --pack-destination ../product/packages/custom
 ```
 
@@ -82,6 +92,11 @@ including rotation/zoom and atlas growth after upload, and checks actual GPU
 texture counts, color changes, final disposal and reuse. It saves a screenshot
 under `test-artifacts/`. To test the package installed in Higharc with Higharc's
 Three.js and fonts, run from this checkout:
+
+`profile:gpu` uses `EXT_disjoint_timer_query_webgl2` around 32 frames after 12
+warmup frames, and reports medians of GPU elapsed and CPU submit times for 200
+fill-only and outlined labels at 1200×800. Software SwiftShader timings are
+diagnostic; rerun on target hardware for a production cutover decision.
 
 ```sh
 npm run test:browser -- \
@@ -99,7 +114,7 @@ fill-only resource measurements, not GPU frame-time results. Nimbus Sans uses
 196,608 shared texture bytes for the same strings; allocation depends on the font.
 
 In `product`, set the root dependency to
-`file:packages/custom/three-text-0.6.5-higharc.0.tgz`, run `yarn install`, and stage
+`file:packages/custom/three-text-0.6.5-higharc.1.tgz`, run `yarn install`, and stage
 the tarball with `git add -f` (the custom-package path is covered by Git LFS).
 Keep the package version, fork commit and tarball provenance together when
 updating the package. There is no need to publish to the public npm registry.

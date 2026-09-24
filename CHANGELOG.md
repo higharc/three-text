@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.5-higharc.1]
+
+### Added
+
+- Optional GLSL vector outlines and application fragment hooks for selection/isolation.
+- WebGL2 disjoint timer query probe for the dense 200-label scenario.
+
 ## [0.6.5-higharc.0]
 
 ### Added

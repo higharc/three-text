@@ -136,6 +136,53 @@ async function main() {
     );
     shared[0].adapter.setColor(0, 0, 0);
     compare(reference, draw(b), `${name}: color reset`);
+    const outlinedReference = await Text.create({
+      text: 'O MW fght',
+      font,
+      size: 2
+    });
+    const outlinedShared = await Text.create(
+      { text: 'O MW fght', font, size: 2 },
+      { atlas }
+    );
+    const outlineOptions = {
+      color: { r: 0, g: 0, b: 0 },
+      outlineWidth: 0.12,
+      outlineColor: { r: 1, g: 0, b: 0 }
+    };
+    const standaloneStroke = createSlugGLSLMesh(
+      outlinedReference.gpuData,
+      outlineOptions
+    );
+    const sharedStroke = createSlugGLSLMesh(
+      outlinedShared.gpuData,
+      outlineOptions
+    );
+    const strokeScene = new Scene();
+    const sharedStrokeScene = new Scene();
+    strokeScene.background = sharedStrokeScene.background = new Color('white');
+    strokeScene.add(standaloneStroke.mesh);
+    sharedStrokeScene.add(sharedStroke.mesh);
+    standaloneStroke.mesh.position.set(5, -5, 0);
+    sharedStroke.mesh.position.copy(standaloneStroke.mesh.position);
+    const strokePixels = draw(strokeScene);
+    compare(
+      strokePixels,
+      draw(sharedStrokeScene),
+      `${name}: outlined shared vs standalone`
+    );
+    let red = 0;
+    for (let offset = 0; offset < strokePixels.length; offset += 4) {
+      if (strokePixels[offset] > strokePixels[offset + 1] + 40) red++;
+    }
+    check(red > 10, `${name}: no colored outline rendered`);
+    strokeScene.remove(standaloneStroke.mesh);
+    sharedStrokeScene.remove(sharedStroke.mesh);
+    standaloneStroke.dispose();
+    sharedStroke.dispose();
+    outlinedReference.dispose();
+    outlinedShared.dispose();
+    draw(b);
     preview = document.createElement('canvas');
     preview.width = 1200;
     preview.height = 800;

@@ -1,6 +1,6 @@
 {
   "name": "three-text",
-  "version": "0.6.5-higharc.0",
+  "version": "0.6.5-higharc.1",
   "description": "3D font rendering and text layout engine for the web",
   "main": "dist/three/index.cjs",
   "module": "dist/three/index.js",
@@ -119,6 +119,7 @@
     "test:build": "node scripts/verifyBuild.mjs",
     "test:artifact": "node scripts/verifySharedAtlas.mjs",
     "test:browser": "node scripts/verifySharedAtlasBrowser.mjs",
+    "profile:gpu": "node scripts/verifySharedAtlasBrowser.mjs --profile",
     "benchmark": "THREE_TEXT_LOG=true vitest run test/pipelinePerf.test.ts",
     "format": "prettier --write \"**/*.{js,ts,json,md}\"",
     "format:check": "prettier --check \"**/*.{js,ts,json,md}\""
