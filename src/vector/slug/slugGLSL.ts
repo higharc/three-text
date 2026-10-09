@@ -26,6 +26,8 @@ export interface SlugGLSLMeshOptions {
   /** Additional GLSL 300 ES declarations and main-body code for application materials. */
   fragmentDeclarations?: string;
   fragmentBody?: string;
+  /** Runs on the outline pass, before the fill pass draws over all glyphs. */
+  outlineFragmentBody?: string;
   // GLSL preamble injected before main(): uniforms, helpers, etc
   animationDeclarations?: string;
   // GLSL body injected inside main(), must write `outPos` (vec3)
@@ -159,7 +161,21 @@ export function createSlugGLSLMesh(
     ...options?.uniforms
   };
 
-  const frag = `${options?.adaptiveSupersampling ? '#define SLUG_ADAPTIVE_SUPERSAMPLE\n' : ''}
+  function makeMaterial(outline: boolean): THREE.RawShaderMaterial {
+    const fragmentBody = outline
+      ? `if (coverage >= 1.0) discard;
+        float outer = coverage;
+        for (int sampleIndex = 0; sampleIndex < 8; sampleIndex++) {
+            float angle = float(sampleIndex) * 0.7853981633974483;
+            outer = max(outer, SlugRender(v_texcoord + u_outlineRadius * vec2(cos(angle), sin(angle)), v_banding, v_glyph));
+        }
+        outColor = vec4(u_outlineColor.rgb * (outer - coverage), outer - coverage);
+        if (outColor.a <= 0.0) discard;
+        ${options?.outlineFragmentBody ?? ''}`
+      : `outColor = fillColor;
+        if (outColor.a <= 0.0) discard;
+        ${options?.fragmentBody ?? ''}`;
+    const frag = `${options?.adaptiveSupersampling ? '#define SLUG_ADAPTIVE_SUPERSAMPLE\n' : ''}
 ${fragShader
   .replace(
     'void main() {',
@@ -167,34 +183,33 @@ ${fragShader
   )
   .replace(
     '    outColor = v_color * coverage;',
-    `    vec4 fillColor = v_color * coverage;
-    outColor = fillColor;
-    if (u_outlineRadius > 0.0) {
-        float outer = coverage;
-        // Supersample the offset fill at the stroke boundary. This avoids
-        // tessellated stroke geometry and expands the quad to cover exterior ink.
-        for (int sampleIndex = 0; sampleIndex < 8; sampleIndex++) {
-            float angle = float(sampleIndex) * 0.7853981633974483;
-            outer = max(outer, SlugRender(v_texcoord + u_outlineRadius * vec2(cos(angle), sin(angle)), v_banding, v_glyph));
-        }
-        outColor = vec4(u_outlineColor.rgb * (outer - coverage), outer - coverage) + fillColor;
-    }
-    if (outColor.a <= 0.0) discard;
-    ${options?.fragmentBody ?? ''}`
+    `    vec4 fillColor = v_color * coverage;\n    ${fragmentBody}`
   )}`;
+    return new THREE.RawShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms,
+      vertexShader: buildVertexShader(options),
+      fragmentShader: frag,
+      transparent: true,
+      premultipliedAlpha: true,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    });
+  }
 
-  const material = new THREE.RawShaderMaterial({
-    glslVersion: THREE.GLSL3,
-    uniforms,
-    vertexShader: buildVertexShader(options),
-    fragmentShader: frag,
-    transparent: true,
-    premultipliedAlpha: true,
-    depthWrite: false,
-    side: THREE.DoubleSide
-  });
-
-  const mesh = new THREE.Mesh(geo, material);
+  const fillMaterial = makeMaterial(false);
+  let outlineMaterial: THREE.RawShaderMaterial | undefined;
+  if (outlineWidth > 0) {
+    outlineMaterial = makeMaterial(true);
+    // Draw every outline before any fill; a later glyph's stroke must not cover
+    // the face of an earlier glyph in the same text mesh.
+    geo.addGroup(0, gpuData.indices.length, 0);
+    geo.addGroup(0, gpuData.indices.length, 1);
+  }
+  const mesh = new THREE.Mesh(
+    geo,
+    outlineMaterial ? [outlineMaterial, fillMaterial] : fillMaterial
+  );
   mesh.onBeforeRender = () => {
     const pair = textures.sync();
     uniforms.curveTexture.value = pair.curve;
@@ -215,7 +230,8 @@ ${fragShader
       if (disposed) return;
       disposed = true;
       geo.dispose();
-      material.dispose();
+      outlineMaterial?.dispose();
+      fillMaterial.dispose();
       textures.release();
     }
   };

@@ -61,7 +61,9 @@ describe('shared Slug atlas', () => {
         const all = packSlugData(shapes);
         expect(result.curveTexture.data).toEqual(all.curveTexture.data);
         expect(result.bandTexture.data).toEqual(all.bandTexture.data);
-        expect(result.vertices).toEqual(all.vertices.subarray(index * 80, (index + 1) * 80));
+        expect(result.vertices).toEqual(
+          all.vertices.subarray(index * 80, (index + 1) * 80)
+        );
       }
     }
     expect(atlas.getStats().glyphCount).toBe(700);
@@ -154,6 +156,7 @@ describe('shared Slug atlas', () => {
       outlineColor: { r: 1, g: 0, b: 0 },
       fragmentDeclarations: 'uniform float custom;',
       fragmentBody: 'outColor.rgb *= custom;',
+      outlineFragmentBody: 'outColor.rgb *= 0.5;',
       uniforms: { custom: { value: 0.5 } }
     });
     expect(stroke.mesh.geometry.getAttribute('position').count).toBe(
@@ -168,10 +171,17 @@ describe('shared Slug atlas', () => {
     ).toBeCloseTo(-0.1);
     expect(stroke.uniforms.u_outlineRadius.value).toBeCloseTo(0.1);
     expect(stroke.uniforms.custom.value).toBe(0.5);
-    const material = stroke.mesh.material as import('three').RawShaderMaterial;
-    expect(material.fragmentShader).toContain('uniform float custom;');
-    expect(material.fragmentShader).toContain('outColor.rgb *= custom;');
-    expect(material.fragmentShader).toContain('outer - coverage');
+    const [outline, fill] = stroke.mesh
+      .material as import('three').RawShaderMaterial[];
+    expect(
+      stroke.mesh.geometry.groups.map((group) => group.materialIndex)
+    ).toEqual([0, 1]);
+    expect(outline.fragmentShader).toContain('outer - coverage');
+    expect(outline.fragmentShader).toContain('outColor.rgb *= 0.5;');
+    expect(outline.fragmentShader).not.toContain('outColor.rgb *= custom;');
+    expect(fill.fragmentShader).toContain('uniform float custom;');
+    expect(fill.fragmentShader).toContain('outColor.rgb *= custom;');
+    expect(fill.fragmentShader).not.toContain('outer - coverage');
     plain.dispose();
     stroke.dispose();
     expect(() => createSlugGLSLMesh(data, { outlineWidth: -1 })).toThrow(

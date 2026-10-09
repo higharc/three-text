@@ -1,6 +1,6 @@
 {
   "name": "three-text",
-  "version": "0.6.5-higharc.1",
+  "version": "0.6.5-higharc.2",
   "description": "3D font rendering and text layout engine for the web",
   "main": "dist/three/index.cjs",
   "module": "dist/three/index.js",

@@ -56,14 +56,19 @@ than fetched separately for each label.
   GPU resources even if the CPU atlas is retained for reuse.
 - Sharing reduces storage and uploads, not draw calls or per-pixel curve work.
   Outlines use eight offset evaluations of the Slug coverage shader, with
-  expanded glyph quads. `outlineWidth` is a diameter in text-space coordinates;
+  expanded glyph quads. The mesh draws every outline first and every fill
+  second, so later glyph strokes cannot cover earlier glyph faces.
+  `outlineWidth` is a diameter in text-space coordinates;
   `outlineColor` and optional `fragmentDeclarations`/`fragmentBody` let an
-  application style the fill independently. Do not enable outlines for dense
-  sheets before measuring GPU time on the target hardware.
-- The GLSL application hook runs after premultiplied fill/stroke coverage is
-  computed. It can access `fillColor` and `outColor`; sampler uniforms can be
-  passed through `uniforms`. Avoid writing RGB outside the covered glyph since
-  transparent pixels are discarded before the hook. Higharc's adapter is in
+  application style the fill independently. `outlineFragmentBody` runs only in
+  the outline pass, for example to apply isolation without fill highlighting.
+  Do not enable outlines for dense sheets before measuring GPU time on the
+  target hardware.
+- The GLSL application hooks run after their pass computes premultiplied
+  coverage. The fill hook can access `fillColor` and `outColor`, and the outline
+  hook can access its stroke-only `outColor`. Sampler uniforms can be passed
+  through `uniforms`. Transparent pixels are discarded before either hook.
+  Higharc's adapter is in
   `product/packages/gfx/threeTextVectorMaterial.ts`.
 
 ## Build and test
@@ -114,7 +119,7 @@ fill-only resource measurements, not GPU frame-time results. Nimbus Sans uses
 196,608 shared texture bytes for the same strings; allocation depends on the font.
 
 In `product`, set the root dependency to
-`file:packages/custom/three-text-0.6.5-higharc.1.tgz`, run `yarn install`, and stage
+`file:packages/custom/three-text-0.6.5-higharc.2.tgz`, run `yarn install`, and stage
 the tarball with `git add -f` (the custom-package path is covered by Git LFS).
 Keep the package version, fork commit and tarball provenance together when
 updating the package. There is no need to publish to the public npm registry.

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.5-higharc.2]
+
+### Fixed
+
+- Draw all Slug outlines before all fills within each text mesh, so later glyph strokes cannot cover earlier glyph faces.
+- Allow application isolation hooks on both passes while selection affects the fill only.
+
 ## [0.6.5-higharc.1]
 
 ### Added
